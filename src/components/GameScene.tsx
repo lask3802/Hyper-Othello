@@ -31,9 +31,9 @@ const Cell = ({
     <mesh>
       <boxGeometry args={[0.9, 0.9, 0.9]} />
       <meshStandardMaterial
-        color="#0f172a"
+        color="#334155"
         transparent
-        opacity={0.25}
+        opacity={0.45}
         wireframe
       />
     </mesh>
@@ -41,7 +41,7 @@ const Cell = ({
       <mesh>
         <sphereGeometry args={[0.35, 32, 32]} />
         <meshStandardMaterial
-          color={value === 1 ? '#0b1120' : '#e2e8f0'}
+          color={value === 1 ? '#1e293b' : '#f8fafc'}
           metalness={0.1}
           roughness={0.4}
         />
@@ -101,9 +101,10 @@ const GameScene = () => {
 
   return (
     <>
-      <ambientLight intensity={0.6} />
-      <directionalLight position={[6, 9, 5]} intensity={1.1} />
-      <pointLight position={[-6, -4, -6]} intensity={0.6} />
+      <ambientLight intensity={0.85} />
+      <directionalLight position={[6, 9, 5]} intensity={1.4} />
+      <directionalLight position={[-6, 6, -4]} intensity={0.6} />
+      <pointLight position={[-6, -4, -6]} intensity={0.9} />
       <group>
         {board.map((layer, z) =>
           layer.map((row, y) =>

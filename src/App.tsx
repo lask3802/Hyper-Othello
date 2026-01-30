@@ -21,7 +21,7 @@ function App() {
   return (
     <div className="app">
       <Canvas className="h-full w-full" camera={{ position: [9, 9, 9], fov: 50 }}>
-        <color attach="background" args={['#05070d']} />
+        <color attach="background" args={['#0f172a']} />
         <GameScene />
         <OrbitControls makeDefault enablePan />
       </Canvas>
