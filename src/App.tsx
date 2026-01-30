@@ -1,17 +1,18 @@
-import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
+import { Canvas } from '@react-three/fiber'
+import { useShallow } from 'zustand/react/shallow'
 import './App.css'
 import GameScene from './components/GameScene'
 import { useGameStore } from './game/useGameStore'
 function App() {
   const { currentPlayer, scores, reset, gameOver, winner } = useGameStore(
-    (state) => ({
+    useShallow((state) => ({
       currentPlayer: state.currentPlayer,
       scores: state.scores,
       reset: state.reset,
       gameOver: state.gameOver,
       winner: state.winner,
-    }),
+    })),
   )
   const currentLabel = currentPlayer === 1 ? 'Black' : 'White'
   const winnerLabel =

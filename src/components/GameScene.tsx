@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { BOARD_SIZE, positionKey, useGameStore } from '../game/useGameStore'
 import type { CellValue } from '../game/useGameStore'
 
@@ -79,12 +80,14 @@ const Cell = ({
 )
 
 const GameScene = () => {
-  const { board, validMoves, placePiece, gameOver } = useGameStore((state) => ({
-    board: state.board,
-    validMoves: state.validMoves,
-    placePiece: state.placePiece,
-    gameOver: state.gameOver,
-  }))
+  const { board, validMoves, placePiece, gameOver } = useGameStore(
+    useShallow((state) => ({
+      board: state.board,
+      validMoves: state.validMoves,
+      placePiece: state.placePiece,
+      gameOver: state.gameOver,
+    })),
+  )
   const [hoveredKey, setHoveredKey] = useState<string | null>(null)
 
   const previewSet = useMemo(() => {
