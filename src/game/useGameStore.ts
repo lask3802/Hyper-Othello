@@ -1,10 +1,13 @@
 import { create } from 'zustand'
 
-export const BOARD_SIZE = 6
+export type BoardSize = 4 | 6
+
+const DEFAULT_BOARD_SIZE: BoardSize = 6
 
 export type Player = 1 | 2
 export type CellValue = 0 | Player
 export type Winner = 0 | Player
+export type GameMode = 'pvp' | 'ai'
 
 export interface Position {
   x: number
@@ -14,13 +17,16 @@ export interface Position {
 
 interface GameState {
   board: CellValue[][][]
+  boardSize: BoardSize
+  gameMode: GameMode
   currentPlayer: Player
   scores: Record<Player, number>
   validMoves: Record<string, Position[]>
   gameOver: boolean
   winner: Winner
   placePiece: (position: Position) => void
-  reset: () => void
+  reset: (boardSize?: BoardSize) => void
+  setGameMode: (mode: GameMode) => void
 }
 
 const directions: Position[] = []
@@ -38,19 +44,16 @@ for (let dx = -1; dx <= 1; dx += 1) {
 export const positionKey = (position: Position) =>
   `${position.x},${position.y},${position.z}`
 
-const isWithinBounds = (x: number, y: number, z: number) =>
-  x >= 0 && x < BOARD_SIZE && y >= 0 && y < BOARD_SIZE && z >= 0 && z < BOARD_SIZE
-
-const createEmptyBoard = (): CellValue[][][] =>
-  Array.from({ length: BOARD_SIZE }, () =>
-    Array.from({ length: BOARD_SIZE }, () =>
-      Array.from({ length: BOARD_SIZE }, () => 0 as CellValue),
+const createEmptyBoard = (boardSize: BoardSize): CellValue[][][] =>
+  Array.from({ length: boardSize }, () =>
+    Array.from({ length: boardSize }, () =>
+      Array.from({ length: boardSize }, () => 0 as CellValue),
     ),
   )
 
-const createInitialBoard = (): CellValue[][][] => {
-  const board = createEmptyBoard()
-  const mid = BOARD_SIZE / 2 - 1
+const createInitialBoard = (boardSize: BoardSize): CellValue[][][] => {
+  const board = createEmptyBoard(boardSize)
+  const mid = boardSize / 2 - 1
   for (let z = mid; z <= mid + 1; z += 1) {
     for (let y = mid; y <= mid + 1; y += 1) {
       for (let x = mid; x <= mid + 1; x += 1) {
@@ -65,11 +68,12 @@ const cloneBoard = (board: CellValue[][][]): CellValue[][][] =>
   board.map((layer) => layer.map((row) => [...row]))
 
 const countScores = (board: CellValue[][][]): Record<Player, number> => {
+  const boardSize = board.length
   let black = 0
   let white = 0
-  for (let z = 0; z < BOARD_SIZE; z += 1) {
-    for (let y = 0; y < BOARD_SIZE; y += 1) {
-      for (let x = 0; x < BOARD_SIZE; x += 1) {
+  for (let z = 0; z < boardSize; z += 1) {
+    for (let y = 0; y < boardSize; y += 1) {
+      for (let x = 0; x < boardSize; x += 1) {
         const value = board[z][y][x]
         if (value === 1) {
           black += 1
@@ -86,11 +90,19 @@ const getValidMoves = (
   board: CellValue[][][],
   player: Player,
 ): Record<string, Position[]> => {
+  const boardSize = board.length
+  const isWithinBounds = (x: number, y: number, z: number) =>
+    x >= 0 &&
+    x < boardSize &&
+    y >= 0 &&
+    y < boardSize &&
+    z >= 0 &&
+    z < boardSize
   const opponent = player === 1 ? 2 : 1
   const moves: Record<string, Position[]> = {}
-  for (let z = 0; z < BOARD_SIZE; z += 1) {
-    for (let y = 0; y < BOARD_SIZE; y += 1) {
-      for (let x = 0; x < BOARD_SIZE; x += 1) {
+  for (let z = 0; z < boardSize; z += 1) {
+    for (let y = 0; y < boardSize; y += 1) {
+      for (let x = 0; x < boardSize; x += 1) {
         if (board[z][y][x] !== 0) {
           continue
         }
@@ -126,10 +138,12 @@ const getValidMoves = (
   return moves
 }
 
-const createInitialState = (): Omit<GameState, 'placePiece' | 'reset'> => {
-  const board = createInitialBoard()
+const createInitialState = (): Omit<GameState, 'placePiece' | 'reset' | 'setGameMode'> => {
+  const board = createInitialBoard(DEFAULT_BOARD_SIZE)
   return {
     board,
+    boardSize: DEFAULT_BOARD_SIZE,
+    gameMode: 'pvp',
     currentPlayer: 1,
     scores: countScores(board),
     validMoves: getValidMoves(board, 1),
@@ -140,6 +154,14 @@ const createInitialState = (): Omit<GameState, 'placePiece' | 'reset'> => {
 
 export const useGameStore = create<GameState>((set) => ({
   ...createInitialState(),
+  setGameMode: (mode) => {
+    set((state) => {
+      if (state.gameMode === mode) {
+        return state
+      }
+      return { ...state, gameMode: mode }
+    })
+  },
   placePiece: (position) => {
     set((state) => {
       if (state.gameOver) {
@@ -155,39 +177,140 @@ export const useGameStore = create<GameState>((set) => ({
       flips.forEach((flip) => {
         nextBoard[flip.z][flip.y][flip.x] = state.currentPlayer
       })
-      const scores = countScores(nextBoard)
-      const nextPlayer: Player = state.currentPlayer === 1 ? 2 : 1
-      let nextMoves = getValidMoves(nextBoard, nextPlayer)
-      let currentPlayer = nextPlayer
-      let gameOver = false
-      let winner: Winner = 0
-
-      if (Object.keys(nextMoves).length === 0) {
-        const currentMoves = getValidMoves(nextBoard, state.currentPlayer)
-        if (Object.keys(currentMoves).length === 0) {
-          gameOver = true
-          winner =
-            scores[1] === scores[2] ? 0 : scores[1] > scores[2] ? 1 : 2
-          nextMoves = {}
-          currentPlayer = nextPlayer
-        } else {
-          currentPlayer = state.currentPlayer
-          nextMoves = currentMoves
-        }
-      }
+      const transition = advanceState(
+        nextBoard,
+        state.currentPlayer,
+        state.gameMode,
+      )
 
       return {
         ...state,
-        board: nextBoard,
-        scores,
-        currentPlayer,
-        validMoves: nextMoves,
-        gameOver,
-        winner,
+        board: transition.board,
+        scores: transition.scores,
+        currentPlayer: transition.currentPlayer,
+        validMoves: transition.validMoves,
+        gameOver: transition.gameOver,
+        winner: transition.winner,
       }
     })
   },
-  reset: () => {
-    set(createInitialState())
+  reset: (boardSize) => {
+    set((state) => {
+      const nextSize = boardSize ?? state.boardSize
+      const board = createInitialBoard(nextSize)
+      return {
+        board,
+        boardSize: nextSize,
+        gameMode: state.gameMode,
+        currentPlayer: 1,
+        scores: countScores(board),
+        validMoves: getValidMoves(board, 1),
+        gameOver: false,
+        winner: 0,
+      }
+    })
   },
 }))
+
+const chooseGreedyMove = (
+  validMoves: Record<string, Position[]>,
+): Position | null => {
+  let bestMove: Position | null = null
+  let bestFlips = -1
+  for (const [key, flips] of Object.entries(validMoves)) {
+    const [x, y, z] = key.split(',').map(Number)
+    if (flips.length > bestFlips) {
+      bestFlips = flips.length
+      bestMove = { x, y, z }
+    }
+  }
+  return bestMove
+}
+
+const applyMove = (
+  board: CellValue[][][],
+  player: Player,
+  position: Position,
+  flips: Position[],
+): CellValue[][][] => {
+  const nextBoard = cloneBoard(board)
+  nextBoard[position.z][position.y][position.x] = player
+  flips.forEach((flip) => {
+    nextBoard[flip.z][flip.y][flip.x] = player
+  })
+  return nextBoard
+}
+
+const advanceState = (
+  board: CellValue[][][],
+  lastPlayer: Player,
+  gameMode: GameMode,
+): {
+  board: CellValue[][][]
+  scores: Record<Player, number>
+  currentPlayer: Player
+  validMoves: Record<string, Position[]>
+  gameOver: boolean
+  winner: Winner
+} => {
+  let currentBoard = board
+  let currentPlayer: Player = lastPlayer === 1 ? 2 : 1
+  let currentMoves = getValidMoves(currentBoard, currentPlayer)
+
+  if (Object.keys(currentMoves).length === 0) {
+    const lastMoves = getValidMoves(currentBoard, lastPlayer)
+    if (Object.keys(lastMoves).length === 0) {
+      const scores = countScores(currentBoard)
+      return {
+        board: currentBoard,
+        scores,
+        currentPlayer,
+        validMoves: {},
+        gameOver: true,
+        winner:
+          scores[1] === scores[2] ? 0 : scores[1] > scores[2] ? 1 : 2,
+      }
+    }
+    currentPlayer = lastPlayer
+    currentMoves = lastMoves
+  }
+
+  if (gameMode === 'ai') {
+    while (currentPlayer === 2) {
+      const aiMove = chooseGreedyMove(currentMoves)
+      if (!aiMove) {
+        break
+      }
+      const aiFlips = currentMoves[positionKey(aiMove)] ?? []
+      currentBoard = applyMove(currentBoard, 2, aiMove, aiFlips)
+      currentPlayer = 1
+      currentMoves = getValidMoves(currentBoard, currentPlayer)
+      if (Object.keys(currentMoves).length === 0) {
+        const aiMoves = getValidMoves(currentBoard, 2)
+        if (Object.keys(aiMoves).length === 0) {
+          const scores = countScores(currentBoard)
+          return {
+            board: currentBoard,
+            scores,
+            currentPlayer,
+            validMoves: {},
+            gameOver: true,
+            winner:
+              scores[1] === scores[2] ? 0 : scores[1] > scores[2] ? 1 : 2,
+          }
+        }
+        currentPlayer = 2
+        currentMoves = aiMoves
+      }
+    }
+  }
+
+  return {
+    board: currentBoard,
+    scores: countScores(currentBoard),
+    currentPlayer,
+    validMoves: currentMoves,
+    gameOver: false,
+    winner: 0,
+  }
+}
