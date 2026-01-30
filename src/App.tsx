@@ -4,7 +4,14 @@ import { Canvas } from '@react-three/fiber'
 import { useShallow } from 'zustand/react/shallow'
 import './App.css'
 import GameScene from './components/GameScene'
-import { useGameStore } from './game/useGameStore'
+import { positionKey, useGameStore } from './game/useGameStore'
+import type { CellValue, Position } from './game/useGameStore'
+
+const formatCoordinate = (position: Position) =>
+  `(${position.x + 1}, ${position.y + 1}, ${position.z + 1})`
+
+const formatCellValue = (value: CellValue) =>
+  value === 0 ? 'Empty' : value === 1 ? 'Black' : 'White'
 function App() {
   const {
     currentPlayer,
@@ -16,6 +23,10 @@ function App() {
     boardSize,
     gameMode,
     setGameMode,
+    validMoves,
+    placePiece,
+    moveLog,
+    lastMoveByPlayer,
   } = useGameStore(
     useShallow((state) => ({
       currentPlayer: state.currentPlayer,
@@ -27,14 +38,24 @@ function App() {
       boardSize: state.boardSize,
       gameMode: state.gameMode,
       setGameMode: state.setGameMode,
+      validMoves: state.validMoves,
+      placePiece: state.placePiece,
+      moveLog: state.moveLog,
+      lastMoveByPlayer: state.lastMoveByPlayer,
     })),
   )
   const [sliceMode, setSliceMode] = useState<'xy' | 'xz'>('xy')
+  const [sliceHoverKey, setSliceHoverKey] = useState<string | null>(null)
   const whiteLabel = gameMode === 'ai' ? 'White (AI)' : 'White'
   const currentLabel =
     currentPlayer === 1 ? 'Black' : gameMode === 'ai' ? whiteLabel : 'White'
   const winnerLabel =
     winner === 0 ? 'Draw' : winner === 1 ? 'Black' : whiteLabel
+  const opponentLastMoveKey = useMemo(() => {
+    const opponent = currentPlayer === 1 ? 2 : 1
+    const opponentLastMove = lastMoveByPlayer[opponent]
+    return opponentLastMove ? positionKey(opponentLastMove) : null
+  }, [currentPlayer, lastMoveByPlayer])
   const slices = useMemo(() => {
     if (sliceMode === 'xy') {
       return board.map((layer, index) => ({
@@ -47,6 +68,14 @@ function App() {
       rows: board.map((layer) => layer[layerIndex]),
     }))
   }, [board, boardSize, sliceMode])
+  const slicePreviewSet = useMemo(() => {
+    const set = new Set<string>()
+    const hoveredFlips = sliceHoverKey ? validMoves[sliceHoverKey] ?? [] : []
+    hoveredFlips.forEach((flip) => {
+      set.add(positionKey(flip))
+    })
+    return set
+  }, [sliceHoverKey, validMoves])
 
   return (
     <div className="app">
@@ -146,24 +175,106 @@ function App() {
                 }}
               >
                 {slice.rows.flatMap((row, rowIndex) =>
-                  row.map((cell, cellIndex) => (
-                    <span
-                      key={`${slice.label}-${rowIndex}-${cellIndex}`}
-                      className="h-3 w-3 rounded-[2px] border border-slate-700"
-                      style={{
-                        backgroundColor:
-                          cell === 1
-                            ? '#1e293b'
-                            : cell === 2
-                              ? '#f8fafc'
-                              : '#0f172a',
-                      }}
-                    />
-                  )),
+                  row.map((cell, cellIndex) => {
+                    const position =
+                      sliceMode === 'xy'
+                        ? { x: cellIndex, y: rowIndex, z: sliceIndex }
+                        : { x: cellIndex, y: sliceIndex, z: rowIndex }
+                    const key = positionKey(position)
+                    const isValid =
+                      !gameOver && cell === 0 && Boolean(validMoves[key])
+                    const isPreview = slicePreviewSet.has(key)
+                    const isOpponentLastMove = opponentLastMoveKey === key
+                    const isHoverTarget = sliceHoverKey === key
+                    const baseColor =
+                      cell === 1
+                        ? '#1e293b'
+                        : cell === 2
+                          ? '#f8fafc'
+                          : '#0f172a'
+                    const boxShadow = [
+                      isHoverTarget
+                        ? '0 0 0 2px rgba(56,189,248,0.9) inset'
+                        : '',
+                      isValid
+                        ? '0 0 0 1px rgba(125,211,252,0.7) inset'
+                        : '',
+                      isPreview
+                        ? '0 0 0 2px rgba(244,114,182,0.6) inset'
+                        : '',
+                      isOpponentLastMove
+                        ? '0 0 0 2px rgba(250,204,21,0.75) inset'
+                        : '',
+                    ]
+                      .filter(Boolean)
+                      .join(', ')
+                    return (
+                      <button
+                        key={`${slice.label}-${rowIndex}-${cellIndex}`}
+                        className="flex h-3 w-3 items-center justify-center rounded-[2px] border border-slate-700"
+                        style={{
+                          backgroundColor: baseColor,
+                          boxShadow: boxShadow || undefined,
+                          cursor: isValid ? 'pointer' : 'default',
+                        }}
+                        onClick={() => {
+                          if (!isValid) {
+                            return
+                          }
+                          setSliceHoverKey(null)
+                          placePiece(position)
+                        }}
+                        onMouseEnter={() => {
+                          if (isValid) {
+                            setSliceHoverKey(key)
+                          }
+                        }}
+                        onMouseLeave={() => {
+                          if (sliceHoverKey === key) {
+                            setSliceHoverKey(null)
+                          }
+                        }}
+                        type="button"
+                      >
+                        {isValid ? (
+                          <span className="h-1.5 w-1.5 rounded-full bg-sky-300/80" />
+                        ) : null}
+                      </button>
+                    )
+                  }),
                 )}
               </div>
             </div>
           ))}
+        </div>
+      </div>
+      <div className="absolute bottom-4 right-4 z-10 w-72 rounded-lg bg-slate-900/80 p-4 text-xs text-slate-100 shadow-lg">
+        <div className="text-sm font-semibold">Move Log</div>
+        <div className="mt-3 max-h-[35vh] space-y-3 overflow-auto pr-1">
+          {moveLog.length === 0 ? (
+            <div className="text-[11px] text-slate-400">No moves yet.</div>
+          ) : (
+            [...moveLog].reverse().map((entry) => (
+              <div key={entry.moveNumber} className="space-y-1">
+                <div className="text-[11px] font-semibold text-slate-200">
+                  {entry.moveNumber}.{' '}
+                  {entry.player === 1 ? 'Black' : whiteLabel} @{' '}
+                  {formatCoordinate(entry.position)}
+                </div>
+                <div className="space-y-0.5 text-[10px] text-slate-400">
+                  {entry.changes.map((change, index) => (
+                    <div
+                      key={`${entry.moveNumber}-${positionKey(change.position)}-${index}`}
+                    >
+                      {formatCoordinate(change.position)}{' '}
+                      {formatCellValue(change.from)} →{' '}
+                      {formatCellValue(change.to)}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>

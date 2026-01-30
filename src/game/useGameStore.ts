@@ -15,6 +15,19 @@ export interface Position {
   z: number
 }
 
+export interface MoveChange {
+  position: Position
+  from: CellValue
+  to: CellValue
+}
+
+export interface MoveLogEntry {
+  moveNumber: number
+  player: Player
+  position: Position
+  changes: MoveChange[]
+}
+
 interface GameState {
   board: CellValue[][][]
   boardSize: BoardSize
@@ -24,6 +37,8 @@ interface GameState {
   validMoves: Record<string, Position[]>
   gameOver: boolean
   winner: Winner
+  lastMoveByPlayer: Record<Player, Position | null>
+  moveLog: MoveLogEntry[]
   placePiece: (position: Position) => void
   reset: (boardSize?: BoardSize) => void
   setGameMode: (mode: GameMode) => void
@@ -138,7 +153,10 @@ const getValidMoves = (
   return moves
 }
 
-const createInitialState = (): Omit<GameState, 'placePiece' | 'reset' | 'setGameMode'> => {
+const createInitialState = (): Omit<
+  GameState,
+  'placePiece' | 'reset' | 'setGameMode'
+> => {
   const board = createInitialBoard(DEFAULT_BOARD_SIZE)
   return {
     board,
@@ -149,6 +167,8 @@ const createInitialState = (): Omit<GameState, 'placePiece' | 'reset' | 'setGame
     validMoves: getValidMoves(board, 1),
     gameOver: false,
     winner: 0,
+    lastMoveByPlayer: { 1: null, 2: null },
+    moveLog: [],
   }
 }
 
@@ -172,16 +192,38 @@ export const useGameStore = create<GameState>((set) => ({
       if (!flips) {
         return state
       }
-      const nextBoard = cloneBoard(state.board)
-      nextBoard[position.z][position.y][position.x] = state.currentPlayer
-      flips.forEach((flip) => {
-        nextBoard[flip.z][flip.y][flip.x] = state.currentPlayer
-      })
+      const moveResult = applyMove(
+        state.board,
+        state.currentPlayer,
+        position,
+        flips,
+      )
       const transition = advanceState(
-        nextBoard,
+        moveResult.board,
         state.currentPlayer,
         state.gameMode,
       )
+      const moveEntry: MoveLogEntry = {
+        moveNumber: state.moveLog.length + 1,
+        player: state.currentPlayer,
+        position,
+        changes: moveResult.changes,
+      }
+      const aiMoveLog = transition.aiMoveLog.map((entry, index) => ({
+        ...entry,
+        moveNumber: moveEntry.moveNumber + index + 1,
+      }))
+      const nextMoveLog = [...state.moveLog, moveEntry, ...aiMoveLog]
+      const nextLastMove = {
+        ...state.lastMoveByPlayer,
+        [state.currentPlayer]: position,
+      }
+      if (transition.aiLastMoveByPlayer[1]) {
+        nextLastMove[1] = transition.aiLastMoveByPlayer[1]
+      }
+      if (transition.aiLastMoveByPlayer[2]) {
+        nextLastMove[2] = transition.aiLastMoveByPlayer[2]
+      }
 
       return {
         ...state,
@@ -191,6 +233,8 @@ export const useGameStore = create<GameState>((set) => ({
         validMoves: transition.validMoves,
         gameOver: transition.gameOver,
         winner: transition.winner,
+        moveLog: nextMoveLog,
+        lastMoveByPlayer: nextLastMove,
       }
     })
   },
@@ -207,6 +251,8 @@ export const useGameStore = create<GameState>((set) => ({
         validMoves: getValidMoves(board, 1),
         gameOver: false,
         winner: 0,
+        lastMoveByPlayer: { 1: null, 2: null },
+        moveLog: [],
       }
     })
   },
@@ -232,13 +278,19 @@ const applyMove = (
   player: Player,
   position: Position,
   flips: Position[],
-): CellValue[][][] => {
+): { board: CellValue[][][]; changes: MoveChange[] } => {
   const nextBoard = cloneBoard(board)
-  nextBoard[position.z][position.y][position.x] = player
+  const changes: MoveChange[] = []
+  const { x, y, z } = position
+  const previousValue = nextBoard[z][y][x]
+  nextBoard[z][y][x] = player
+  changes.push({ position, from: previousValue, to: player })
   flips.forEach((flip) => {
+    const before = nextBoard[flip.z][flip.y][flip.x]
     nextBoard[flip.z][flip.y][flip.x] = player
+    changes.push({ position: flip, from: before, to: player })
   })
-  return nextBoard
+  return { board: nextBoard, changes }
 }
 
 const advanceState = (
@@ -252,10 +304,17 @@ const advanceState = (
   validMoves: Record<string, Position[]>
   gameOver: boolean
   winner: Winner
+  aiMoveLog: MoveLogEntry[]
+  aiLastMoveByPlayer: Record<Player, Position | null>
 } => {
   let currentBoard = board
   let currentPlayer: Player = lastPlayer === 1 ? 2 : 1
   let currentMoves = getValidMoves(currentBoard, currentPlayer)
+  const aiMoveLog: MoveLogEntry[] = []
+  const aiLastMoveByPlayer: Record<Player, Position | null> = {
+    1: null,
+    2: null,
+  }
 
   if (Object.keys(currentMoves).length === 0) {
     const lastMoves = getValidMoves(currentBoard, lastPlayer)
@@ -269,6 +328,8 @@ const advanceState = (
         gameOver: true,
         winner:
           scores[1] === scores[2] ? 0 : scores[1] > scores[2] ? 1 : 2,
+        aiMoveLog,
+        aiLastMoveByPlayer,
       }
     }
     currentPlayer = lastPlayer
@@ -282,7 +343,15 @@ const advanceState = (
         break
       }
       const aiFlips = currentMoves[positionKey(aiMove)] ?? []
-      currentBoard = applyMove(currentBoard, 2, aiMove, aiFlips)
+      const moveResult = applyMove(currentBoard, 2, aiMove, aiFlips)
+      currentBoard = moveResult.board
+      aiMoveLog.push({
+        moveNumber: 0,
+        player: 2,
+        position: aiMove,
+        changes: moveResult.changes,
+      })
+      aiLastMoveByPlayer[2] = aiMove
       currentPlayer = 1
       currentMoves = getValidMoves(currentBoard, currentPlayer)
       if (Object.keys(currentMoves).length === 0) {
@@ -297,6 +366,8 @@ const advanceState = (
             gameOver: true,
             winner:
               scores[1] === scores[2] ? 0 : scores[1] > scores[2] ? 1 : 2,
+            aiMoveLog,
+            aiLastMoveByPlayer,
           }
         }
         currentPlayer = 2
@@ -312,5 +383,7 @@ const advanceState = (
     validMoves: currentMoves,
     gameOver: false,
     winner: 0,
+    aiMoveLog,
+    aiLastMoveByPlayer,
   }
 }

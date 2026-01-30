@@ -13,6 +13,7 @@ interface CellProps {
   isValid: boolean
   isPreview: boolean
   isHoverTarget: boolean
+  isLastMove: boolean
   onHover: () => void
   onBlur: () => void
   onClick: () => void
@@ -24,6 +25,7 @@ const Cell = ({
   isValid,
   isPreview,
   isHoverTarget,
+  isLastMove,
   onHover,
   onBlur,
   onClick,
@@ -41,6 +43,12 @@ const Cell = ({
           metalness={0.1}
           roughness={0.4}
         />
+      </mesh>
+    ) : null}
+    {isLastMove ? (
+      <mesh>
+        <sphereGeometry args={[0.48, 24, 24]} />
+        <meshBasicMaterial color="#facc15" transparent opacity={0.4} />
       </mesh>
     ) : null}
     {isPreview && value !== 0 ? (
@@ -76,17 +84,24 @@ const Cell = ({
 )
 
 const GameScene = () => {
-  const { board, validMoves, placePiece, gameOver } = useGameStore(
+  const { board, validMoves, placePiece, gameOver, currentPlayer, lastMoveByPlayer } = useGameStore(
     useShallow((state) => ({
       board: state.board,
       validMoves: state.validMoves,
       placePiece: state.placePiece,
       gameOver: state.gameOver,
+      currentPlayer: state.currentPlayer,
+      lastMoveByPlayer: state.lastMoveByPlayer,
     })),
   )
   const boardSize = board.length
   const offset = (boardSize - 1) / 2
   const [hoveredKey, setHoveredKey] = useState<string | null>(null)
+  const opponentLastMoveKey = useMemo(() => {
+    const opponent = currentPlayer === 1 ? 2 : 1
+    const opponentLastMove = lastMoveByPlayer[opponent]
+    return opponentLastMove ? positionKey(opponentLastMove) : null
+  }, [currentPlayer, lastMoveByPlayer])
 
   const previewSet = useMemo(() => {
     const set = new Set<string>()
@@ -123,6 +138,7 @@ const GameScene = () => {
                   isValid={isValid}
                   isPreview={previewSet.has(key)}
                   isHoverTarget={hoveredKey === key}
+                  isLastMove={opponentLastMoveKey === key}
                   onHover={() => setHoveredKey(key)}
                   onBlur={() => setHoveredKey(null)}
                   onClick={() => placePiece({ x, y, z })}
