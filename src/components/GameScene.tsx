@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
+import { BoxGeometry } from 'three'
 import { useShallow } from 'zustand/react/shallow'
-import { BOARD_SIZE, positionKey, useGameStore } from '../game/useGameStore'
+import { positionKey, useGameStore } from '../game/useGameStore'
 import type { CellValue } from '../game/useGameStore'
 
 const spacing = 1.2
-const offset = (BOARD_SIZE - 1) / 2
+const edgeGeometry = new BoxGeometry(0.9, 0.9, 0.9)
 
 interface CellProps {
   position: [number, number, number]
@@ -28,15 +29,10 @@ const Cell = ({
   onClick,
 }: CellProps) => (
   <group position={position}>
-    <mesh>
-      <boxGeometry args={[0.9, 0.9, 0.9]} />
-      <meshStandardMaterial
-        color="#334155"
-        transparent
-        opacity={0.45}
-        wireframe
-      />
-    </mesh>
+    <lineSegments>
+      <edgesGeometry args={[edgeGeometry]} />
+      <lineBasicMaterial color="#475569" transparent opacity={0.45} />
+    </lineSegments>
     {value !== 0 ? (
       <mesh>
         <sphereGeometry args={[0.35, 32, 32]} />
@@ -50,7 +46,7 @@ const Cell = ({
     {isPreview && value !== 0 ? (
       <mesh>
         <sphereGeometry args={[0.42, 24, 24]} />
-        <meshBasicMaterial color="#22c55e" transparent opacity={0.35} />
+        <meshBasicMaterial color="#f9a8d4" transparent opacity={0.25} />
       </mesh>
     ) : null}
     {isValid ? (
@@ -70,9 +66,9 @@ const Cell = ({
       >
         <sphereGeometry args={[0.28, 20, 20]} />
         <meshBasicMaterial
-          color={isHoverTarget ? '#4ade80' : '#22c55e'}
+          color={isHoverTarget ? '#38bdf8' : '#7dd3fc'}
           transparent
-          opacity={isHoverTarget ? 0.6 : 0.35}
+          opacity={isHoverTarget ? 0.55 : 0.3}
         />
       </mesh>
     ) : null}
@@ -88,6 +84,8 @@ const GameScene = () => {
       gameOver: state.gameOver,
     })),
   )
+  const boardSize = board.length
+  const offset = (boardSize - 1) / 2
   const [hoveredKey, setHoveredKey] = useState<string | null>(null)
 
   const previewSet = useMemo(() => {
